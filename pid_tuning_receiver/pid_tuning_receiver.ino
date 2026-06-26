@@ -1,4 +1,3 @@
-
 int battery_pin = 11; // Pin to witch voltage divider is connected
 bool battery_protection;
 
@@ -36,87 +35,24 @@ int motor_pins [4] = {7, 8, 9, 10};
 int motor_values [4] = {0, 0, 0, 0};
 
 
+#include <esp_now.h>
+#include <WiFi.h>
+uint8_t transmiterAddress[] = {0xE4, 0xB3, 0x23, 0xF8, 0x37, 0xD0}; // треба променити
+
+struct DronPackage {
+    float throttle;
+    float yaw;
+    float pitch;
+    float roll;
+    bool armStatus;
+};
+
+DronPackage arrivedPackage;
+unsigned long timeSentPackage = 0;
+esp_now_peer_info_t peerInfo;
+
 uint32_t loop_timer;
 
-/*
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
-
-BLEServer *pServer = NULL;
-BLECharacteristic *pTxCharacteristic;
-BLECharacteristic *pRxCharacteristic;
-
-#define SERVICE_UUID           "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
-#define CHARACTERISTIC_UUID_RX "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
-#define CHARACTERISTIC_UUID_TX "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
-
-unsigned long last_ble_time = 0;
-bool deviceConnected = false;
-
-// Add a server callbacks class
-class Server_callbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer* pServer) { deviceConnected = true; }
-  void onDisconnect(BLEServer* pServer) {
-    deviceConnected = false;
-    pServer->getAdvertising()->start();
-  }
-};
-*/
-
-// треба променити
-void Rx() {
-
-  String rxValue = String(pRxCharacteristic->getValue().c_str());
-  pRxCharacteristic->setValue("");
-
-  if (rxValue.length() > 0) {
-
-    if (rxValue.charAt(0) == 'a') {
-      Arm();
-    }
-
-    if (rxValue.charAt(0) == 't') {
-      throttle = rxValue.substring(1, rxValue.length()).toInt();
-    }
-
-    if (rxValue.charAt(0) == 'p') {
-      pid_parameters[1][0] = rxValue.substring(1, rxValue.length()).toDouble();
-    }
-
-    if (rxValue.charAt(0) == 'i') {
-      pid_parameters[1][1] = rxValue.substring(1, rxValue.length()).toDouble();
-    }
-
-    if (rxValue.charAt(0) == 'd') {
-      pid_parameters[1][2] = rxValue.substring(1, rxValue.length()).toDouble();
-    }
-  }
-}
-/*
-void Tx() {
-
-  char txString[128];
-  snprintf(txString, sizeof(txString), "%.2f,%.2f,%.5f,%.5f,%.5f,%.2f, %d,%d,%d,%d", error_pitch_angle, Battery_voltage(), pid_parameters[1][0], pid_parameters[1][1], pid_parameters[1][2], 0, motor_values[0], motor_values[1], motor_values[2], motor_values[3]);
-  pTxCharacteristic->setValue(txString);
-  pTxCharacteristic->notify();
-}
-
-void Ble_setup() {
-
-  BLEDevice::init("UART Service");
-  pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new Server_callbacks());
-  BLEService *pService = pServer->createService(SERVICE_UUID);
-  pTxCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_TX, BLECharacteristic::PROPERTY_NOTIFY);
-  pTxCharacteristic->addDescriptor(new BLE2902());
-  pRxCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID_RX, BLECharacteristic::PROPERTY_WRITE_NR);
-  pService->start();
-  pServer->getAdvertising()->start();
-
-}
-*/
 
 void PID(float error, float p, float i, float d, float previous_error, float previous_i) {
 
@@ -253,15 +189,63 @@ void Motor_power() {
   }
 }
 
-void Arm() {
-  arm = !arm;
-  if (arm) PID_restart();
+void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingData, int len) {
+  if (len == sizeof(DronPackage)) {
+    memcpy(&arrivedPackage, incomingData, sizeof(arrivedPackage));
+
+    if (!arrivedPackage.armStatus) {
+      PID_restart();
+    }
+    arm = arrivedPackage.armStatus;
+    throttle = arrivedPackage.throttle;
+    pid_parameters[1][0] = arrivedPackage.yaw;
+    pid_parameters[1][1] = arrivedPackage.pitch;
+    pid_parameters[1][2] = arrivedPackage.roll;
+  }
+}
+
+void checkFailsafe() {
+  if (millis() - timeSentPackage > 1500) {
+    arrivedPackage.throttle = 1000; 
+    arrivedPackage.yaw = 1500;      
+    arrivedPackage.pitch = 1500;    
+    arrivedPackage.roll = 1500;     
+    arrivedPackage.armStatus = false; 
+    
+    Serial.println("!!! FAILSAFE АКТИВИРАН (ИЗГУБЉЕН СИГНАЛ) !!!");
+  }
+}
+
+void printDebugReceiver() {
+  Serial.print("Throttle: ");       Serial.println(arrivedPackage.throttle);
+  Serial.print("Yaw: ");            Serial.println(arrivedPackage.yaw);
+  Serial.print("Pitch: ");          Serial.println(arrivedPackage.pitch);
+  Serial.print("Roll: ");           Serial.println(arrivedPackage.roll);
+  Serial.print("Motor Status: ");   Serial.println(arrivedPackage.armStatus ? "ОТКЉУЧАН" : "ЗАКЉУЧАН");
+  Serial.println("-------------");
 }
 
 void setup() {
+  Serial.begin(115200);
+  WiFi.mode(WIFI_STA);
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Грешка при иницијализацији комуникације.");
+    return;
+  }
+  
+  esp_now_register_recv_cb(OnDataRecv);
+
+  memcpy(peerInfo.peer_addr, transmiterAddress, 6);
+  peerInfo.channel = 0;  
+  peerInfo.encrypt = false;
+  
+  if (esp_now_add_peer(&peerInfo) != ESP_OK){
+    Serial.println("Неуспешно додавање трансмитера у листу");
+    return;
+  }
 
   rgbLedWrite(21, 255, 0, 0);
-  Serial.begin(115200);
 
   Wire.setClock(400000);
   Wire.begin(13, 12);
@@ -278,7 +262,6 @@ void setup() {
   ESP32PWM::allocateTimer(3);
 
   Motor_setup();
-//  Ble_setup();
 
   analogReadResolution(12);
   analogSetAttenuation(ADC_11db);
@@ -287,13 +270,10 @@ void setup() {
 }
 
 void loop() {
+  checkFailsafe();
 
   Battery_protection(Battery_voltage());
   IMU();
-
-  //desired_roll_rate = 0;
-  //desired_pitch_rate = 0;
-  //desired_yaw_rate = 0;
 
   Kalman(roll_kalman_angle, roll_kalman_angle_uncertainty, roll_rate, roll_angle);
   roll_kalman_angle = kalman_output[0];
@@ -304,11 +284,7 @@ void loop() {
   pitch_kalman_angle_uncertainty = kalman_output[1];
 
   error_roll_angle = desired_roll_angle - roll_kalman_angle;
-  error_pitch_angle = desired_pitch_angle - pitch_kalman_angle - 7  ;
-
-  //error_roll_rate = desired_roll_rate - roll_rate;
-  //error_pitch_rate = desired_pitch_rate - pitch_rate;
-  //error_yaw_rate = desired_yaw_rate - yaw_rate;
+  error_pitch_angle = desired_pitch_angle - pitch_kalman_angle - 7;
 
   PID(error_roll_angle, pid_parameters[0][0], pid_parameters[0][1], pid_parameters[0][2], previous_error_roll_angle, previous_roll_i);
   roll_input = pid_return[0];
@@ -326,13 +302,7 @@ void loop() {
   previous_yaw_i = pid_return[2];
 
   Motor_power();
-/*
-  if (deviceConnected && millis() - last_ble_time > 100) {
-    Rx();
-    Tx();
-    last_ble_time = millis();
-  }
-*/
+  
   while (micros() - loop_timer < 4000); // овде треба променити дилеј у зависности од фреквенције коју будемо одредили
   loop_timer = micros();
 }
