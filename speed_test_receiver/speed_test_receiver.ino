@@ -20,7 +20,7 @@ float previous_error_roll_angle, previous_error_pitch_angle;
 float previous_roll_i, previous_pitch_i, previous_yaw_i; // Previous I values
 float roll_input, pitch_input, yaw_input; //Angle inputs
 float pid_return[] = {0, 0, 0};
-float pid_parameters [3][3] = { {0,     0,      0},     // Roll   PID parameter
+float pid_parameters [3][3] = { {0.1,   0.0001, 0.025}, // Roll   PID parameter
                                 {0.18,  0.002,  0.05},  // Pitch  PID parameter
                                 {0,     0,      0}};    // Yaw    PID parameter
 
@@ -198,19 +198,30 @@ void OnDataRecv(const esp_now_recv_info_t *recv_info, const uint8_t *incomingDat
     }
     arm = arrivedPackage.armStatus;
     throttle = arrivedPackage.throttle;
+
+    // ово је за тјуновање ПИДа за рол осу
+    // 0 - рол, 1 - пич, 2 - јо
+    /*
+    desired_roll_angle = 0, desired_pitch_angle = 0;
+
     pid_parameters[0][0] = arrivedPackage.yaw;
     pid_parameters[0][1] = arrivedPackage.pitch;
     pid_parameters[0][2] = arrivedPackage.roll;
+    */
+
+    // ово је за контролу кретања
+    desired_roll_angle  = arrivedPackage.roll;
+    desired_pitch_angle = arrivedPackage.pitch;
   }
 }
 
 void checkFailsafe() {
   if (millis() - timeSentPackage > 1500) {
-    arrivedPackage.throttle = 1000; 
-    arrivedPackage.yaw = 1500;      
-    arrivedPackage.pitch = 1500;    
-    arrivedPackage.roll = 1500;     
-    arrivedPackage.armStatus = false; 
+    arrivedPackage.throttle = 0; 
+    arrivedPackage.yaw = 0;      
+    arrivedPackage.pitch = 0;    
+    arrivedPackage.roll = 0;     
+    arrivedPackage.armStatus = 0; 
     
     Serial.println("!!! FAILSAFE АКТИВИРАН (ИЗГУБЉЕН СИГНАЛ) !!!");
   }
