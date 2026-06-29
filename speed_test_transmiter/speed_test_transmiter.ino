@@ -104,9 +104,9 @@ void setup() {
 
   packageForSend.armStatus = 0;
   packageForSend.throttle = 15;
-  packageForSend.yaw = 0.04;
-  packageForSend.pitch = 0.025;
-  packageForSend.roll = 0.03;
+  packageForSend.yaw = 0.0;
+  packageForSend.pitch = 0.0;
+  packageForSend.roll = 0.00;
 }
 
 void loop() { 
