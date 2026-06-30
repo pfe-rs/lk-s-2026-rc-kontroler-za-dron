@@ -21,9 +21,9 @@ float previous_error_roll_angle, previous_error_pitch_angle;
 float previous_roll_i, previous_pitch_i, previous_yaw_i; // Previous I values
 float roll_input, pitch_input, yaw_input; //Angle inputs
 float pid_return[] = {0, 0, 0};
-float pid_parameters [3][3] = { {0,     0,      0},     // Roll   PID parameter
-                                {0.04,  0.025,  0.03},  // Pitch  PID parameter
-                                {0,     0,      0}};    // Yaw    PID parameter
+float pid_parameters [3][3] = { {0.1,   0.0001, 0.025},     // Roll   PID parameter
+                                {0.18,  0.002,  0.05},      // Pitch  PID parameter
+                                {0,     0,      0}};        // Yaw    PID parameter
 
 
 #include <ESP32Servo.h> // Library used for PWM signal
